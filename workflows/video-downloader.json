@@ -1,0 +1,280 @@
+{
+  "name": "Video Downloader",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "video-download",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "webhookId": "video-download-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Обрабатываем входящие данные\nconst videos = $input.first().json.videos || [];\n\nreturn videos.map(video => ({\n  json: {\n    video_id: video.video_id,\n    title: video.title,\n    description: video.description,\n    share_url: video.share_url,\n    platform: video.platform,\n    download_path: `${$env.DOWNLOADS_PATH}/${video.platform}/${video.video_id}.mp4`\n  }\n}));"
+      },
+      "id": "process-videos",
+      "name": "Process Videos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "platform-check",
+              "leftValue": "={{ $json.platform }}",
+              "rightValue": "tiktok",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "tiktok-filter",
+      "name": "TikTok Filter",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "platform-check",
+              "leftValue": "={{ $json.platform }}",
+              "rightValue": "youtube",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "youtube-filter",
+      "name": "YouTube Filter",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "command": "yt-dlp",
+        "arguments": "={{ $json.share_url }} -o {{ $json.download_path }} --format mp4 --no-playlist",
+        "options": {}
+      },
+      "id": "download-tiktok",
+      "name": "Download TikTok",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "command": "yt-dlp",
+        "arguments": "={{ $json.share_url }} -o {{ $json.download_path }} --format mp4 --no-playlist",
+        "options": {}
+      },
+      "id": "download-youtube",
+      "name": "Download YouTube",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "file-exists",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-download-success",
+      "name": "Check Download Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.WEBHOOK_URL }}/video-process",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "video_data",
+              "value": "={{ $json }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "trigger-processing",
+      "name": "Trigger Processing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, message: 'Video downloaded successfully', video_id: $json.video_id } }}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "download-logs",
+        "dataToAppend": "={{ { timestamp: new Date().toISOString(), video_id: $json.video_id, status: 'failed', error: $json.stderr } }}"
+      },
+      "id": "log-error",
+      "name": "Log Error",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1120, 500]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Process Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Videos": {
+      "main": [
+        [
+          {
+            "node": "TikTok Filter",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "YouTube Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TikTok Filter": {
+      "main": [
+        [
+          {
+            "node": "Download TikTok",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube Filter": {
+      "main": [
+        [
+          {
+            "node": "Download YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download TikTok": {
+      "main": [
+        [
+          {
+            "node": "Check Download Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download YouTube": {
+      "main": [
+        [
+          {
+            "node": "Check Download Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Download Success": {
+      "main": [
+        [
+          {
+            "node": "Trigger Processing",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1"
+} 

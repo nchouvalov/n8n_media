@@ -1,0 +1,466 @@
+{
+  "name": "Multi-Platform Publisher",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "publish-video",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "webhookId": "publish-video-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Подготавливаем данные для публикации\nconst videoData = $input.first().json.video_data;\n\nreturn [{\n  json: {\n    video_id: videoData.video_id,\n    title: videoData.title,\n    description: videoData.description,\n    video_path: videoData.output_path,\n    thumbnail_path: videoData.thumbnail_path,\n    tags: videoData.tags || [],\n    platforms: videoData.platforms || ['youtube', 'instagram'],\n    publish_options: {\n      youtube: {\n        privacy: 'public',\n        category: 'Entertainment',\n        language: 'ru'\n      },\n      instagram: {\n        caption: videoData.description,\n        location: null\n      },\n      tiktok: {\n        privacy: 'public',\n        duet: false,\n        stitch: false\n      }\n    }\n  }\n}];"
+      },
+      "id": "prepare-publish",
+      "name": "Prepare Publish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "youtube-check",
+              "leftValue": "={{ $json.platforms.includes('youtube') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "youtube-filter",
+      "name": "YouTube Filter",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "instagram-check",
+              "leftValue": "={{ $json.platforms.includes('instagram') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "instagram-filter",
+      "name": "Instagram Filter",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/upload/youtube/v3/videos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.YOUTUBE_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "part",
+              "value": "snippet,status"
+            },
+            {
+              "name": "uploadType",
+              "value": "multipart"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "snippet",
+              "value": "={{ JSON.stringify({ title: $json.title, description: $json.description, tags: $json.tags, categoryId: '24' }) }}"
+            },
+            {
+              "name": "status",
+              "value": "={{ JSON.stringify({ privacyStatus: $json.publish_options.youtube.privacy }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "publish-youtube",
+      "name": "Publish YouTube",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/v12.0/{{ $env.INSTAGRAM_BUSINESS_ACCOUNT_ID }}/media",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.INSTAGRAM_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "media_type",
+              "value": "REELS"
+            },
+            {
+              "name": "video_url",
+              "value": "={{ $json.video_path }}"
+            },
+            {
+              "name": "caption",
+              "value": "={{ $json.publish_options.instagram.caption }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "publish-instagram",
+      "name": "Publish Instagram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "success-check",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 200,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-youtube-success",
+      "name": "Check YouTube Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "success-check",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 200,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-instagram-success",
+      "name": "Check Instagram Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "publish-logs",
+        "dataToAppend": "={{ { timestamp: new Date().toISOString(), video_id: $('Prepare Publish').first().json.video_id, platform: 'youtube', status: 'success', video_url: $json.id } }}"
+      },
+      "id": "log-youtube-success",
+      "name": "Log YouTube Success",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1340, 100]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "publish-logs",
+        "dataToAppend": "={{ { timestamp: new Date().toISOString(), video_id: $('Prepare Publish').first().json.video_id, platform: 'instagram', status: 'success', media_id: $json.id } }}"
+      },
+      "id": "log-instagram-success",
+      "name": "Log Instagram Success",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1340, 500]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "publish-errors",
+        "dataToAppend": "={{ { timestamp: new Date().toISOString(), video_id: $('Prepare Publish').first().json.video_id, platform: 'youtube', error: $json.error } }}"
+      },
+      "id": "log-youtube-error",
+      "name": "Log YouTube Error",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "publish-errors",
+        "dataToAppend": "={{ { timestamp: new Date().toISOString(), video_id: $('Prepare Publish').first().json.video_id, platform: 'instagram', error: $json.error } }}"
+      },
+      "id": "log-instagram-error",
+      "name": "Log Instagram Error",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1340, 700]
+    },
+    {
+      "parameters": {
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "{{ $env.TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "✅ Видео успешно опубликовано!\n\n📹 {{ $('Prepare Publish').first().json.title }}\n🔗 YouTube: {{ $json.id }}\n📱 Instagram: {{ $('Log Instagram Success').first().json.media_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-notification",
+      "name": "Send Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, message: 'Video published successfully', video_id: $('Prepare Publish').first().json.video_id, platforms: $('Prepare Publish').first().json.platforms } }}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1560, 500]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Publish": {
+      "main": [
+        [
+          {
+            "node": "YouTube Filter",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Instagram Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube Filter": {
+      "main": [
+        [
+          {
+            "node": "Publish YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram Filter": {
+      "main": [
+        [
+          {
+            "node": "Publish Instagram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish YouTube": {
+      "main": [
+        [
+          {
+            "node": "Check YouTube Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Instagram": {
+      "main": [
+        [
+          {
+            "node": "Check Instagram Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check YouTube Success": {
+      "main": [
+        [
+          {
+            "node": "Log YouTube Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log YouTube Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Instagram Success": {
+      "main": [
+        [
+          {
+            "node": "Log Instagram Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Instagram Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log YouTube Success": {
+      "main": [
+        [
+          {
+            "node": "Send Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Instagram Success": {
+      "main": [
+        [
+          {
+            "node": "Send Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Notification": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1"
+} 

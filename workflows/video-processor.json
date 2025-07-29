@@ -1,0 +1,331 @@
+{
+  "name": "Video Processor",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "video-process",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "webhookId": "video-process-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем данные о видео\nconst videoData = $input.first().json.video_data;\n\nreturn [{\n  json: {\n    video_id: videoData.video_id,\n    input_path: videoData.download_path,\n    output_path: `${$env.DOWNLOADS_PATH}/processed/${videoData.video_id}.mp4`,\n    title: videoData.title,\n    platform: videoData.platform,\n    processing_options: {\n      quality: $env.VIDEO_QUALITY || '720p',\n      format: $env.VIDEO_FORMAT || 'mp4',\n      add_watermark: true,\n      watermark_path: $env.WATERMARK_PATH,\n      resize: true,\n      target_width: 1080,\n      target_height: 1920\n    }\n  }\n}];"
+      },
+      "id": "prepare-processing",
+      "name": "Prepare Processing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "command": "ffprobe",
+        "arguments": "-v quiet -print_format json -show_format -show_streams {{ $json.input_path }}",
+        "options": {}
+      },
+      "id": "get-video-info",
+      "name": "Get Video Info",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Анализируем информацию о видео\nconst videoInfo = JSON.parse($input.first().json.stdout);\nconst videoStream = videoInfo.streams.find(s => s.codec_type === 'video');\nconst audioStream = videoInfo.streams.find(s => s.codec_type === 'audio');\n\nconst currentData = $('Prepare Processing').first().json;\n\nreturn [{\n  json: {\n    ...currentData,\n    original_info: {\n      width: parseInt(videoStream.width),\n      height: parseInt(videoStream.height),\n      duration: parseFloat(videoInfo.format.duration),\n      has_audio: !!audioStream,\n      codec: videoStream.codec_name\n    }\n  }\n}];"
+      },
+      "id": "analyze-video",
+      "name": "Analyze Video",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "needs-resize",
+              "leftValue": "={{ $json.original_info.width }}",
+              "rightValue": "={{ $json.processing_options.target_width }}",
+              "operator": {
+                "type": "number",
+                "operation": "ne"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-resize",
+      "name": "Check Resize",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "command": "ffmpeg",
+        "arguments": "-i {{ $json.input_path }} -vf scale={{ $json.processing_options.target_width }}:{{ $json.processing_options.target_height }}:force_original_aspect_ratio=decrease,pad={{ $json.processing_options.target_width }}:{{ $json.processing_options.target_height }}:(ow-iw)/2:(oh-ih)/2 -c:a copy {{ $json.output_path }}",
+        "options": {}
+      },
+      "id": "resize-video",
+      "name": "Resize Video",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1340, 100]
+    },
+    {
+      "parameters": {
+        "command": "ffmpeg",
+        "arguments": "-i {{ $json.input_path }} -c copy {{ $json.output_path }}",
+        "options": {}
+      },
+      "id": "copy-video",
+      "name": "Copy Video",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "add-watermark",
+              "leftValue": "={{ $json.processing_options.add_watermark }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-watermark",
+      "name": "Check Watermark",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "command": "ffmpeg",
+        "arguments": "-i {{ $json.output_path }} -i {{ $json.processing_options.watermark_path }} -filter_complex \"overlay=10:10\" -c:a copy {{ $json.output_path }}_watermarked.mp4",
+        "options": {}
+      },
+      "id": "add-watermark",
+      "name": "Add Watermark",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1780, 100]
+    },
+    {
+      "parameters": {
+        "command": "mv",
+        "arguments": "{{ $json.output_path }}_watermarked.mp4 {{ $json.output_path }}",
+        "options": {}
+      },
+      "id": "rename-watermarked",
+      "name": "Rename Watermarked",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [2000, 100]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.WEBHOOK_URL }}/content-analyze",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "processed_video",
+              "value": "={{ $json }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "trigger-analysis",
+      "name": "Trigger Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2220, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, message: 'Video processed successfully', video_id: $json.video_id, output_path: $json.output_path } }}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2220, 400]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Processing": {
+      "main": [
+        [
+          {
+            "node": "Get Video Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Video Info": {
+      "main": [
+        [
+          {
+            "node": "Analyze Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Video": {
+      "main": [
+        [
+          {
+            "node": "Check Resize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Resize": {
+      "main": [
+        [
+          {
+            "node": "Resize Video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Copy Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resize Video": {
+      "main": [
+        [
+          {
+            "node": "Check Watermark",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Copy Video": {
+      "main": [
+        [
+          {
+            "node": "Check Watermark",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Watermark": {
+      "main": [
+        [
+          {
+            "node": "Add Watermark",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Trigger Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Watermark": {
+      "main": [
+        [
+          {
+            "node": "Rename Watermarked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rename Watermarked": {
+      "main": [
+        [
+          {
+            "node": "Trigger Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger Analysis": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1"
+} 

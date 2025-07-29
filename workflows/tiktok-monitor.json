@@ -1,0 +1,266 @@
+{
+  "name": "TikTok Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.tiktok.com/v2/user/info/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.TIKTOK_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "open_id,union_id,avatar_url,display_name,bio_description,profile_deep_link,is_verified,follower_count,following_count,likes_count,video_count"
+            }
+          ]
+        }
+      },
+      "id": "tiktok-api",
+      "name": "TikTok API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "video-count-check",
+              "leftValue": "={{ $json.data.user.video_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-videos",
+      "name": "Filter Videos",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.tiktok.com/v2/video/list/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.TIKTOK_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,title,cover_image_url,video_description,create_time,share_url,statistics"
+            },
+            {
+              "name": "max_count",
+              "value": 10
+            }
+          ]
+        }
+      },
+      "id": "get-videos",
+      "name": "Get Videos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Проверяем новые видео\nconst processedVideos = $('Processed Videos').all();\nconst processedIds = processedVideos.map(video => video.json.video_id);\n\nconst newVideos = $input.all().filter(video => {\n  return !processedIds.includes(video.json.id);\n});\n\nreturn newVideos.map(video => ({\n  json: {\n    video_id: video.json.id,\n    title: video.json.title,\n    description: video.json.video_description,\n    cover_url: video.json.cover_image_url,\n    share_url: video.json.share_url,\n    create_time: video.json.create_time,\n    statistics: video.json.statistics,\n    platform: 'tiktok'\n  }\n}));"
+      },
+      "id": "filter-new-videos",
+      "name": "Filter New Videos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-new-videos",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-new-videos",
+      "name": "Check New Videos",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.WEBHOOK_URL }}/video-download",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "videos",
+              "value": "={{ $json }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "trigger-download",
+      "name": "Trigger Download",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1560, 100]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": "processed-videos",
+        "dataToAppend": "={{ $json }}"
+      },
+      "id": "save-processed",
+      "name": "Save Processed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1560, 300]
+    }
+  ],
+  "connections": {
+    "Cron Trigger": {
+      "main": [
+        [
+          {
+            "node": "TikTok API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TikTok API": {
+      "main": [
+        [
+          {
+            "node": "Filter Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Videos": {
+      "main": [
+        [
+          {
+            "node": "Get Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Videos": {
+      "main": [
+        [
+          {
+            "node": "Filter New Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter New Videos": {
+      "main": [
+        [
+          {
+            "node": "Check New Videos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check New Videos": {
+      "main": [
+        [
+          {
+            "node": "Trigger Download",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1"
+} 
